@@ -28,9 +28,9 @@ class DanceDataset(Dataset):
         self.seq_len = self.obs_len + self.pred_len
 
         if training:
-            data_root = 'datasets/dance/mariel_.npy'
+            data_root = 'datasets/dance/train.npy'
         else:
-            data_root = 'datasets/dance/mariel_test.npy'
+            data_root = 'datasets/dance/test.npy'
 
         self.trajs = np.load(data_root) 
         self.trajs /= (94/28) # Turn to meters

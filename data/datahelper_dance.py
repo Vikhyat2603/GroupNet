@@ -220,6 +220,7 @@ def load_data(pattern="data/mariel_*.npy"):
     
     return ds_all, ds_all_centered, datasets, datasets_centered, ds_counts
 
+'''
 def edges(reduced_joints, seq_len):
     ### Define a subset of joints if we want to train on fewer joints that still capture meaningful body movement:
     if reduced_joints == True:
@@ -252,3 +253,4 @@ def edges(reduced_joints, seq_len):
         edge_index = np.array([(i,j) for i in np.arange(len(reduced_joint_indices)) for j in np.arange(len(reduced_joint_indices)) if i!=j])
     
     return torch.tensor(edge_index, dtype=torch.long), skeleton_edges_over_time, reduced_joint_indices
+'''
