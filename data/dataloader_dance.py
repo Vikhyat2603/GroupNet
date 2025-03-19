@@ -33,12 +33,11 @@ class DanceDataset(Dataset):
             data_root = 'datasets/dance/test.npy'
 
         self.trajs = np.load(data_root) 
-        self.trajs /= (94/28) # Turn to meters
-
-        if training:
-            self.trajs = self.trajs[:32500]
-        else:
-            self.trajs = self.trajs[:12500]
+        
+        # if training:
+        #     self.trajs = self.trajs#[:1500]
+        # else:
+        #     self.trajs = self.trajs#[:400]
 
         self.batch_len = len(self.trajs)
         print(self.batch_len)
