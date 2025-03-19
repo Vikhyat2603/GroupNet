@@ -32,7 +32,8 @@ class DanceDataset(Dataset):
         else:
             data_root = 'datasets/dance/test.npy'
 
-        self.trajs = np.load(data_root) 
+        self.trajs = np.load(data_root)[:,:,:,:2]
+        print(f"Loaded {'Train' if training else 'Test'} data with shape: {self.trajs.shape}")
         
         # if training:
         #     self.trajs = self.trajs#[:1500]

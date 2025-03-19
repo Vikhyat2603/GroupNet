@@ -6,8 +6,10 @@ from torch import nn
 from torch.nn import functional as F
 from collections import defaultdict
 from model.utils import initialize_weights
-from .MS_HGNN_batch import MS_HGNN_oridinary,MS_HGNN_hyper, MLP
+from .MS_HGNN_batch import MS_HGNN_oridinary, MS_HGNN_hyper, MLP
 import math
+
+# NODE_DIM = 6 #dimension of node features (2 for NBA, 6 for Dance)
 
 class DecomposeBlock(nn.Module):
     '''
@@ -151,7 +153,7 @@ class PositionalAgentEncoding(nn.Module):
     
     def get_pos_enc(self, num_t, num_a, t_offset):
         pe = self.pe[t_offset: num_t + t_offset, :]
-        pe = pe[None].repeat(num_a,1,1)
+        pe = pe[None].repeat(num_a, 1, 1)
         return pe
 
     def get_agent_enc(self, num_t, num_a, a_offset):
@@ -178,8 +180,8 @@ class PastEncoder(nn.Module):
         self.scale_number = len(args.hyper_scales)
             
         self.input_fc = nn.Linear(in_dim, self.model_dim)
-        self.input_fc2 = nn.Linear(self.model_dim*args.past_length,self.model_dim)
-        self.input_fc3 = nn.Linear(self.model_dim+3,self.model_dim)
+        self.input_fc2 = nn.Linear(self.model_dim*args.past_length, self.model_dim)
+        # Removed input_fc3 since we no longer need to process categories
 
         self.interaction = MS_HGNN_oridinary(
             embedding_dim=16,
@@ -224,18 +226,7 @@ class PastEncoder(nn.Module):
 
         self.pos_encoder = PositionalAgentEncoding(self.model_dim, 0.1, concat=True)
     
-    def add_category(self,x):
-        B = x.shape[0]
-        N = x.shape[1]
-        category = torch.zeros(N,3).type_as(x)
-        category[0:5,0] = 1
-        category[5:10,1] = 1
-        category[10,2] = 1
-        category = category.repeat(B,1,1)
-        x = torch.cat((x,category),dim=-1)
-        return x
-
-    def forward(self, inputs,batch_size, agent_num):
+    def forward(self, inputs, batch_size, agent_num):
         length = inputs.shape[1]
 
         tf_in = self.input_fc(inputs).view(batch_size*agent_num, length, self.model_dim)
@@ -244,31 +235,31 @@ class PastEncoder(nn.Module):
         tf_in_pos = tf_in_pos.view(batch_size, agent_num, length, self.model_dim)
   
         ftraj_input = self.input_fc2(tf_in_pos.contiguous().view(batch_size, agent_num, length*self.model_dim))
-        ftraj_input = self.input_fc3(self.add_category(ftraj_input))
-        query_input = F.normalize(ftraj_input,p=2,dim=2)
-        feat_corr = torch.matmul(query_input,query_input.permute(0,2,1))
-        ftraj_inter,_ = self.interaction(ftraj_input)
+        # Removed category addition
+        query_input = F.normalize(ftraj_input, p=2, dim=2)
+        feat_corr = torch.matmul(query_input, query_input.permute(0, 2, 1))
+        ftraj_inter, _ = self.interaction(ftraj_input)
         if len(self.args.hyper_scales) > 0:
-            ftraj_inter_hyper,_ = self.interaction_hyper(ftraj_input,feat_corr)
+            ftraj_inter_hyper, _ = self.interaction_hyper(ftraj_input, feat_corr)
         if len(self.args.hyper_scales) > 1:
-            ftraj_inter_hyper2,_ = self.interaction_hyper2(ftraj_input,feat_corr)
+            ftraj_inter_hyper2, _ = self.interaction_hyper2(ftraj_input, feat_corr)
         if len(self.args.hyper_scales) > 2:
-            ftraj_inter_hyper3,_ = self.interaction_hyper3(ftraj_input,feat_corr)
+            ftraj_inter_hyper3, _ = self.interaction_hyper3(ftraj_input, feat_corr)
 
         if len(self.args.hyper_scales) == 0:
-            final_feature = torch.cat((ftraj_input,ftraj_inter),dim=-1)
+            final_feature = torch.cat((ftraj_input, ftraj_inter), dim=-1)
         if len(self.args.hyper_scales) == 1:
-            final_feature = torch.cat((ftraj_input,ftraj_inter,ftraj_inter_hyper),dim=-1)
+            final_feature = torch.cat((ftraj_input, ftraj_inter, ftraj_inter_hyper), dim=-1)
         elif len(self.args.hyper_scales) == 2:
-            final_feature = torch.cat((ftraj_input,ftraj_inter,ftraj_inter_hyper,ftraj_inter_hyper2),dim=-1)
+            final_feature = torch.cat((ftraj_input, ftraj_inter, ftraj_inter_hyper, ftraj_inter_hyper2), dim=-1)
         elif len(self.args.hyper_scales) == 3:
-            final_feature = torch.cat((ftraj_input,ftraj_inter,ftraj_inter_hyper,ftraj_inter_hyper2,ftraj_inter_hyper3),dim=-1)
+            final_feature = torch.cat((ftraj_input, ftraj_inter, ftraj_inter_hyper, ftraj_inter_hyper2, ftraj_inter_hyper3), dim=-1)
 
-        output_feature = final_feature.view(batch_size*agent_num,-1)
+        output_feature = final_feature.view(batch_size*agent_num, -1)
         return output_feature
 
 class FutureEncoder(nn.Module):
-    def __init__(self, args,in_dim=4):
+    def __init__(self, args, in_dim=4):
         super().__init__()
         self.args = args
         self.model_dim = args.hidden_dim
@@ -276,7 +267,7 @@ class FutureEncoder(nn.Module):
         self.input_fc = nn.Linear(in_dim, self.model_dim)
         scale_num = 2 + len(self.args.hyper_scales)
         self.input_fc2 = nn.Linear(self.model_dim*self.args.future_length, self.model_dim)
-        self.input_fc3 = nn.Linear(self.model_dim+3, self.model_dim)
+        # Removed input_fc3 since we no longer need to process categories
 
         self.interaction = MS_HGNN_oridinary(
             embedding_dim=16,
@@ -328,51 +319,39 @@ class FutureEncoder(nn.Module):
         self.qz_layer = nn.Linear(self.out_mlp.out_dim, 2 * self.args.zdim)
         initialize_weights(self.qz_layer.modules())
 
-    def add_category(self,x):
-        B = x.shape[0]
-        N = x.shape[1]
-        category = torch.zeros(N,3).type_as(x)
-        category[0:5,0] = 1
-        category[5:10,1] = 1
-        category[10,2] = 1
-        category = category.repeat(B,1,1)
-        x = torch.cat((x,category),dim=-1)
-        return x
-
-    def forward(self, inputs, batch_size,agent_num,past_feature):
+    def forward(self, inputs, batch_size, agent_num, past_feature):
         length = inputs.shape[1]
-        agent_num = 11
         tf_in = self.input_fc(inputs).view(batch_size*agent_num, length, self.model_dim)
-
+        
         tf_in_pos = self.pos_encoder(tf_in, num_a=batch_size*agent_num)
         tf_in_pos = tf_in_pos.view(batch_size, agent_num, length, self.model_dim)
 
         ftraj_input = self.input_fc2(tf_in_pos.contiguous().view(batch_size, agent_num, -1))
-        ftraj_input = self.input_fc3(self.add_category(ftraj_input))
-        query_input = F.normalize(ftraj_input,p=2,dim=2)
-        feat_corr = torch.matmul(query_input,query_input.permute(0,2,1))
-        ftraj_inter,_ = self.interaction(ftraj_input)
+        # Removed category addition
+        query_input = F.normalize(ftraj_input, p=2, dim=2)
+        feat_corr = torch.matmul(query_input, query_input.permute(0, 2, 1))
+        ftraj_inter, _ = self.interaction(ftraj_input)
 
         if len(self.args.hyper_scales) > 0:
-            ftraj_inter_hyper,_ = self.interaction_hyper(ftraj_input,feat_corr)
+            ftraj_inter_hyper, _ = self.interaction_hyper(ftraj_input, feat_corr)
         if len(self.args.hyper_scales) > 1:
-            ftraj_inter_hyper2,_ = self.interaction_hyper2(ftraj_input,feat_corr)
+            ftraj_inter_hyper2, _ = self.interaction_hyper2(ftraj_input, feat_corr)
         if len(self.args.hyper_scales) > 2:
-            ftraj_inter_hyper3,_ = self.interaction_hyper3(ftraj_input,feat_corr)
+            ftraj_inter_hyper3, _ = self.interaction_hyper3(ftraj_input, feat_corr)
 
         if len(self.args.hyper_scales) == 0:
-            final_feature = torch.cat((ftraj_input,ftraj_inter),dim=-1)
+            final_feature = torch.cat((ftraj_input, ftraj_inter), dim=-1)
         if len(self.args.hyper_scales) == 1:
-            final_feature = torch.cat((ftraj_input,ftraj_inter,ftraj_inter_hyper),dim=-1)
+            final_feature = torch.cat((ftraj_input, ftraj_inter, ftraj_inter_hyper), dim=-1)
         elif len(self.args.hyper_scales) == 2:
-            final_feature = torch.cat((ftraj_input,ftraj_inter,ftraj_inter_hyper,ftraj_inter_hyper2),dim=-1)
+            final_feature = torch.cat((ftraj_input, ftraj_inter, ftraj_inter_hyper, ftraj_inter_hyper2), dim=-1)
         elif len(self.args.hyper_scales) == 3:
-            final_feature = torch.cat((ftraj_input,ftraj_inter,ftraj_inter_hyper,ftraj_inter_hyper2,ftraj_inter_hyper3),dim=-1)
+            final_feature = torch.cat((ftraj_input, ftraj_inter, ftraj_inter_hyper, ftraj_inter_hyper2, ftraj_inter_hyper3), dim=-1)
 
 
-        final_feature = final_feature.view(batch_size*agent_num,-1)
+        final_feature = final_feature.view(batch_size*agent_num, -1)
 
-        h = torch.cat((past_feature,final_feature),dim=-1)
+        h = torch.cat((past_feature, final_feature), dim=-1)
         h = self.out_mlp(h)
         q_z_params = self.qz_layer(h)
         return q_z_params
@@ -395,12 +374,12 @@ class Decoder(nn.Module):
     def forward(self, past_feature, z, batch_size_curr, agent_num_perscene, past_traj, cur_location, sample_num, mode='train'):
         agent_num = batch_size_curr * agent_num_perscene
         past_traj_repeat = past_traj.repeat_interleave(sample_num, dim=0)
-        past_feature = past_feature.view(-1,sample_num,past_feature.shape[-1])
+        past_feature = past_feature.view(-1, sample_num, past_feature.shape[-1])
 
         z_in = z.view(-1, sample_num, z.shape[-1])
 
-        hidden = torch.cat((past_feature,z_in),dim=-1)
-        hidden = hidden.view(agent_num*sample_num,-1)
+        hidden = torch.cat((past_feature, z_in), dim=-1)
+        hidden = hidden.view(agent_num*sample_num, -1)
         x_true = past_traj_repeat.clone() #torch.transpose(pre_motion_scene_norm, 0, 1)
 
         x_hat = torch.zeros_like(x_true)
@@ -412,16 +391,16 @@ class Decoder(nn.Module):
             x_hat, y_hat = self.decompose[i](x_true, x_hat, hidden)
             prediction += y_hat
             reconstruction += x_hat
-        norm_seq = prediction.view(agent_num*sample_num,self.future_length,2)
-        recover_pre_seq = reconstruction.view(agent_num*sample_num,self.past_length,2)
+        norm_seq = prediction.view(agent_num*sample_num, self.future_length, 2)
+        recover_pre_seq = reconstruction.view(agent_num*sample_num, self.past_length, 2)
 
         # norm_seq = norm_seq.permute(2,0,1,3).view(self.future_length, agent_num * sample_num,2)
 
         cur_location_repeat = cur_location.repeat_interleave(sample_num, dim=0)
         out_seq = norm_seq + cur_location_repeat # (agent_num*sample_num,self.past_length,2)
         if mode == 'inference':
-            out_seq = out_seq.view(-1,sample_num,*out_seq.shape[1:]) # (agent_num,sample_num,self.past_length,2)
-        return out_seq,recover_pre_seq
+            out_seq = out_seq.view(-1, sample_num, *out_seq.shape[1:]) # (agent_num,sample_num,self.past_length,2)
+        return out_seq, recover_pre_seq
         
 class GroupNet(nn.Module):
     def __init__(self, args, device):
@@ -429,6 +408,7 @@ class GroupNet(nn.Module):
 
         self.device = device
         self.args = args
+        self.sample_num = 20
 
         # models
         scale_num = 2 + len(self.args.hyper_scales)
@@ -444,50 +424,50 @@ class GroupNet(nn.Module):
         self.device = device
         self.to(device)
     
-    def calculate_loss_pred(self,pred,target,batch_size):
+    def calculate_loss_pred(self, pred, target, batch_size):
         loss = (target-pred).pow(2).sum()
         loss /= batch_size
         loss /= pred.shape[1]
         return loss
     
-    def calculate_loss_kl(self,qz_distribution,pz_distribution,batch_size,agent_num,min_clip):
+    def calculate_loss_kl(self, qz_distribution, pz_distribution, batch_size, agent_num, min_clip):
         loss = qz_distribution.kl(pz_distribution).sum()
         loss /= (batch_size * agent_num)
         loss_clamp = loss.clamp_min_(min_clip)
         return loss_clamp
 
-    def calculate_loss_recover(self,pred,target,batch_size):
+    def calculate_loss_recover(self, pred, target, batch_size):
         loss = (target-pred).pow(2).sum()
         loss /= batch_size
         loss /= pred.shape[1]
         return loss
     
-    def calculate_loss_diverse(self,pred,target,batch_size):
+    def calculate_loss_diverse(self, pred, target, batch_size):
         diff = target.unsqueeze(1) - pred
         avg_dist = diff.pow(2).sum(dim=-1).sum(dim=-1)
         loss = avg_dist.min(dim=1)[0]
         loss = loss.mean() 
         return loss
 
-    def forward(self,data):
+    def forward(self, data):
         device = self.device
         batch_size = data['past_traj'].shape[0]
         agent_num = data['past_traj'].shape[1]
         
-        past_traj = data['past_traj'].view(batch_size*agent_num,self.args.past_length,2).to(device).contiguous()
-        future_traj = data['future_traj'].view(batch_size*agent_num,self.args.future_length,2).to(device).contiguous()
+        past_traj = data['past_traj'].view(batch_size*agent_num, self.args.past_length, 2).to(device).contiguous()
+        future_traj = data['future_traj'].view(batch_size*agent_num, self.args.future_length, 2).to(device).contiguous()
 
-        past_vel = past_traj[:,1:] - past_traj[:,:-1, :]
-        past_vel = torch.cat([past_vel[:,[0]], past_vel], dim=1)
+        past_vel = past_traj[:, 1:] - past_traj[:, :-1, :]
+        past_vel = torch.cat([past_vel[:, [0]], past_vel], dim=1)
 
-        future_vel = future_traj - torch.cat([past_traj[:,[-1]], future_traj[:,:-1, :]],dim=1)
-        cur_location = past_traj[:,[-1]]
+        future_vel = future_traj - torch.cat([past_traj[:, [-1]], future_traj[:, :-1, :]], dim=1)
+        cur_location = past_traj[:, [-1]]
 
-        inputs = torch.cat((past_traj,past_vel),dim=-1)
-        inputs_for_posterior = torch.cat((future_traj,future_vel),dim=-1)
+        inputs = torch.cat((past_traj, past_vel), dim=-1)
+        inputs_for_posterior = torch.cat((future_traj, future_vel), dim=-1)
 
-        past_feature = self.past_encoder(inputs,batch_size,agent_num)
-        qz_param = self.future_encoder(inputs_for_posterior,batch_size,agent_num,past_feature)
+        past_feature = self.past_encoder(inputs, batch_size, agent_num)
+        qz_param = self.future_encoder(inputs_for_posterior, batch_size, agent_num, past_feature)
 
         ### q dist ###
         if self.args.ztype == 'gaussian':
@@ -513,24 +493,23 @@ class GroupNet(nn.Module):
 
         ### use q ###
         # z = qz_sampled
-        pred_traj,recover_traj = self.decoder(past_feature,qz_sampled,batch_size,agent_num,past_traj,cur_location,sample_num=1)
-        loss_pred = self.calculate_loss_pred(pred_traj,future_traj,batch_size)
+        pred_traj, recover_traj = self.decoder(past_feature, qz_sampled, batch_size, agent_num, past_traj, cur_location, sample_num=1)
+        loss_pred = self.calculate_loss_pred(pred_traj, future_traj, batch_size)
 
-        loss_recover = self.calculate_loss_recover(recover_traj,past_traj,batch_size)
-        loss_kl = self.calculate_loss_kl(qz_distribution,pz_distribution,batch_size,agent_num,self.args.min_clip)
+        loss_recover = self.calculate_loss_recover(recover_traj, past_traj, batch_size)
+        loss_kl = self.calculate_loss_kl(qz_distribution, pz_distribution, batch_size, agent_num, self.args.min_clip)
         
 
-        ### p dist for best 20 loss ###
-        sample_num = 20
+        ### p dist for best [sample_num] loss ###
         if self.args.learn_prior:
-            past_feature_repeat = past_feature.repeat_interleave(sample_num, dim=0)
+            past_feature_repeat = past_feature.repeat_interleave(self.sample_num, dim=0)
             p_z_params = self.pz_layer(past_feature_repeat)
             if self.args.ztype == 'gaussian':
                 pz_distribution = Normal(params=p_z_params)
             else:
                 ValueError('Unknown hidden distribution!')
         else:
-            past_feature_repeat = past_feature.repeat_interleave(sample_num, dim=0)
+            past_feature_repeat = past_feature.repeat_interleave(self.sample_num, dim=0)
             if self.args.ztype == 'gaussian':
                 pz_distribution = Normal(mu=torch.zeros(past_feature_repeat.shape[0], self.args.zdim).to(past_traj.device), 
                                         logvar=torch.zeros(past_feature_repeat.shape[0], self.args.zdim).to(past_traj.device))
@@ -540,8 +519,8 @@ class GroupNet(nn.Module):
         pz_sampled = pz_distribution.rsample()
         # z = pz_sampled
 
-        diverse_pred_traj,_ = self.decoder(past_feature_repeat,pz_sampled,batch_size,agent_num,past_traj,cur_location,sample_num=20,mode='inference')
-        loss_diverse = self.calculate_loss_diverse(diverse_pred_traj,future_traj,batch_size)
+        diverse_pred_traj, _ = self.decoder(past_feature_repeat, pz_sampled, batch_size, agent_num, past_traj, cur_location, sample_num=self.sample_num, mode='inference')
+        loss_diverse = self.calculate_loss_diverse(diverse_pred_traj, future_traj, batch_size)
         total_loss = loss_pred + loss_recover + loss_kl+ loss_diverse
 
         return total_loss, loss_pred.item(), loss_recover.item(), loss_kl.item(), loss_diverse.item()
@@ -555,27 +534,26 @@ class GroupNet(nn.Module):
         batch_size = data['past_traj'].shape[0]
         agent_num = data['past_traj'].shape[1]
         
-        past_traj = data['past_traj'].view(batch_size*agent_num,self.args.past_length,2).to(device).contiguous()
+        past_traj = data['past_traj'].view(batch_size*agent_num, self.args.past_length, 2).to(device).contiguous()
 
-        past_vel = past_traj[:,1:] - past_traj[:,:-1, :]
-        past_vel = torch.cat([past_vel[:,[0]], past_vel], dim=1)
+        past_vel = past_traj[:, 1:] - past_traj[:, :-1, :]
+        past_vel = torch.cat([past_vel[:, [0]], past_vel], dim=1)
 
-        cur_location = past_traj[:,[-1]]
+        cur_location = past_traj[:, [-1]]
 
-        inputs = torch.cat((past_traj,past_vel),dim=-1)
+        inputs = torch.cat((past_traj, past_vel), dim=-1)
 
-        past_feature = self.past_encoder(inputs,batch_size,agent_num)
+        past_feature = self.past_encoder(inputs, batch_size, agent_num)
 
-        sample_num = 20
         if self.args.learn_prior:
-            past_feature_repeat = past_feature.repeat_interleave(sample_num, dim=0)
+            past_feature_repeat = past_feature.repeat_interleave(self.sample_num, dim=0)
             p_z_params = self.pz_layer(past_feature_repeat)
             if self.args.ztype == 'gaussian':
                 pz_distribution = Normal(params=p_z_params)
             else:
                 ValueError('Unknown hidden distribution!')
         else:
-            past_feature_repeat = past_feature.repeat_interleave(sample_num, dim=0)
+            past_feature_repeat = past_feature.repeat_interleave(self.sample_num, dim=0)
             if self.args.ztype == 'gaussian':
                 pz_distribution = Normal(mu=torch.zeros(past_feature_repeat.shape[0], self.args.zdim).to(past_traj.device), 
                                         logvar=torch.zeros(past_feature_repeat.shape[0], self.args.zdim).to(past_traj.device))
@@ -585,6 +563,6 @@ class GroupNet(nn.Module):
         pz_sampled = pz_distribution.rsample()
         z = pz_sampled
 
-        diverse_pred_traj,_ = self.decoder(past_feature_repeat,z,batch_size,agent_num,past_traj,cur_location,sample_num=self.args.sample_k,mode='inference')
-        diverse_pred_traj = diverse_pred_traj.permute(1,0,2,3)
+        diverse_pred_traj, _ = self.decoder(past_feature_repeat, z, batch_size, agent_num, past_traj, cur_location, sample_num=self.args.sample_k, mode='inference')
+        diverse_pred_traj = diverse_pred_traj.permute(1, 0, 2, 3)
         return diverse_pred_traj
