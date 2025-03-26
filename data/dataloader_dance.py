@@ -12,7 +12,7 @@ def seq_collate(data):
     data = {
         'past_traj': past_traj,
         'future_traj': future_traj,
-        'seq': 'nba',
+        'seq': 'dance',
     }
 
     return data
