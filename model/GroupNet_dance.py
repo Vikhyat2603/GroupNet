@@ -9,16 +9,26 @@ from model.utils import initialize_weights
 from .MS_HGNN_batch import MS_HGNN_oridinary, MS_HGNN_hyper, MLP
 import math
 
-# NODE_DIM = 6 #dimension of node features (2 for NBA, 6 for Dance)
+NODE_DIM = 3 #dimension of node features (2 for NBA, 3 for Dance)
+
+"""
+GroupNet model for dance motion prediction. This model uses a multi-scale hypergraph neural network
+to capture group dance interactions and predict future dance movements.
+"""
 
 class DecomposeBlock(nn.Module):
-    '''
-    Balance between reconstruction task and prediction task.
-    '''
+    """
+    Balances between reconstruction and prediction tasks by decomposing motion into components.
+    
+    This module takes past trajectories and learns to:
+    1. Reconstruct the past motion sequence
+    2. Predict future motion sequence
+    Using a combination of CNN and GRU networks.
+    """
     def __init__(self, past_len, future_len, input_dim):
         super(DecomposeBlock, self).__init__()
         # * HYPER PARAMETERS
-        channel_in = 2
+        channel_in = NODE_DIM
         channel_out = 32
         dim_kernel = 3
         dim_embedding_key = 96
@@ -28,8 +38,8 @@ class DecomposeBlock(nn.Module):
         self.conv_past = nn.Conv1d(channel_in, channel_out, dim_kernel, stride=1, padding=1)
         self.encoder_past = nn.GRU(channel_out, dim_embedding_key, 1, batch_first=True)
         
-        self.decoder_y = MLP(dim_embedding_key + input_dim, future_len * 2, hidden_size=(512, 256))
-        self.decoder_x = MLP(dim_embedding_key + input_dim, past_len * 2, hidden_size=(512, 256))
+        self.decoder_y = MLP(dim_embedding_key + input_dim, future_len * NODE_DIM, hidden_size=(512, 256))
+        self.decoder_x = MLP(dim_embedding_key + input_dim, past_len * NODE_DIM, hidden_size=(512, 256))
 
         self.relu = nn.ReLU()
 
@@ -49,13 +59,13 @@ class DecomposeBlock(nn.Module):
     def forward(self, x_true, x_hat, f):
         '''
         >>> Input:
-            x_true: N, T_p, 2
-            x_hat: N, T_p, 2
+            x_true: N, T_p, NODE_DIM
+            x_hat: N, T_p, NODE_DIM
             f: N, D
 
         >>> Output:
-            x_hat_after: N, T_p, 2
-            y_hat: n, T_f, 2
+            x_hat_after: N, T_p, NODE_DIM
+            y_hat: n, T_f, NODE_DIM
         '''
         x_ = x_true - x_hat
         x_ = torch.transpose(x_, 1, 2)
@@ -68,12 +78,21 @@ class DecomposeBlock(nn.Module):
 
         input_feat = torch.cat((f, state_past), dim=1)
 
-        x_hat_after = self.decoder_x(input_feat).contiguous().view(-1, self.past_len, 2)
-        y_hat = self.decoder_y(input_feat).contiguous().view(-1, self.future_len, 2)
+        x_hat_after = self.decoder_x(input_feat).contiguous().view(-1, self.past_len, NODE_DIM)
+        y_hat = self.decoder_y(input_feat).contiguous().view(-1, self.future_len, NODE_DIM)
         
         return x_hat_after, y_hat
 
 class Normal:
+    """
+    Implementation of a Normal (Gaussian) distribution with reparameterization.
+    
+    Provides methods for:
+    - Sampling from the distribution
+    - Computing KL divergence
+    - Getting the mode of the distribution
+    Used for the variational component of the model.
+    """
     def __init__(self, mu=None, logvar=None, params=None):
         super().__init__()
         if params is not None:
@@ -106,6 +125,10 @@ class Normal:
         return self.mu
 
 class MLP2(nn.Module):
+    """
+    Multi-layer perceptron with configurable hidden dimensions and activation functions.
+    Used as a building block in various parts of the model for feature transformation.
+    """
     def __init__(self, input_dim, hidden_dims=(128, 128), activation='tanh'):
         super().__init__()
         if activation == 'tanh':
@@ -132,6 +155,13 @@ class MLP2(nn.Module):
 
 """ Positional Encoding """
 class PositionalAgentEncoding(nn.Module):
+    """
+    Implements positional encoding for temporal sequences and agent positions.
+    
+    Similar to transformer positional encoding, helps model understand:
+    - Temporal order of frames in sequences
+    - Relative positions of dancers/agents
+    """
     def __init__(self, d_model, dropout=0.1, max_t_len=200, concat=True):
         super(PositionalAgentEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
@@ -173,7 +203,16 @@ class PositionalAgentEncoding(nn.Module):
         return self.dropout(x) #(N,T,D)
 
 class PastEncoder(nn.Module):
-    def __init__(self, args, in_dim=4):
+    """
+    Encodes past motion sequences using multi-scale hypergraph neural networks.
+    
+    Key components:
+    - Position and motion feature extraction
+    - Ordinary graph neural network for basic interactions
+    - Multiple hypergraph neural networks at different scales
+    - Positional encoding for temporal information
+    """
+    def __init__(self, args, in_dim=NODE_DIM*2):
         super().__init__()
         self.args = args
         self.model_dim = args.hidden_dim
@@ -259,7 +298,15 @@ class PastEncoder(nn.Module):
         return output_feature
 
 class FutureEncoder(nn.Module):
-    def __init__(self, args, in_dim=4):
+    """
+    Encodes future motion sequences for training/conditioning.
+    
+    Similar structure to PastEncoder but:
+    - Used only during training
+    - Produces distribution parameters for the latent space
+    - Helps model learn meaningful motion patterns
+    """
+    def __init__(self, args, in_dim=NODE_DIM*2):
         super().__init__()
         self.args = args
         self.model_dim = args.hidden_dim
@@ -357,6 +404,14 @@ class FutureEncoder(nn.Module):
         return q_z_params
 
 class Decoder(nn.Module):
+    """
+    Decodes latent representations into motion sequences.
+    
+    Features:
+    - Multiple decomposition blocks for progressive refinement
+    - Generates both reconstructed past and predicted future motions
+    - Handles multiple prediction samples for diverse outputs
+    """
     def __init__(self, args):
         super().__init__()
         self.args = args
@@ -384,25 +439,38 @@ class Decoder(nn.Module):
 
         x_hat = torch.zeros_like(x_true)
         batch_size = x_true.size(0)
-        prediction = torch.zeros((batch_size, self.future_length, 2)).cuda()
-        reconstruction = torch.zeros((batch_size, self.past_length, 2)).cuda()
+        prediction = torch.zeros((batch_size, self.future_length, NODE_DIM)).cuda()
+        reconstruction = torch.zeros((batch_size, self.past_length, NODE_DIM)).cuda()
 
         for i in range(self.num_decompose):
             x_hat, y_hat = self.decompose[i](x_true, x_hat, hidden)
             prediction += y_hat
             reconstruction += x_hat
-        norm_seq = prediction.view(agent_num*sample_num, self.future_length, 2)
-        recover_pre_seq = reconstruction.view(agent_num*sample_num, self.past_length, 2)
+        norm_seq = prediction.view(agent_num*sample_num, self.future_length, NODE_DIM)
+        recover_pre_seq = reconstruction.view(agent_num*sample_num, self.past_length, NODE_DIM)
 
         # norm_seq = norm_seq.permute(2,0,1,3).view(self.future_length, agent_num * sample_num,2)
 
         cur_location_repeat = cur_location.repeat_interleave(sample_num, dim=0)
-        out_seq = norm_seq + cur_location_repeat # (agent_num*sample_num,self.past_length,2)
+        out_seq = norm_seq + cur_location_repeat # (agent_num*sample_num,self.past_length,NODE_DIM)
         if mode == 'inference':
-            out_seq = out_seq.view(-1, sample_num, *out_seq.shape[1:]) # (agent_num,sample_num,self.past_length,2)
+            out_seq = out_seq.view(-1, sample_num, *out_seq.shape[1:]) # (agent_num,sample_num,self.past_length,NODE_DIM)
         return out_seq, recover_pre_seq
         
 class GroupNet(nn.Module):
+    """Group dance motion prediction model
+    
+    Args:
+        args: Configuration arguments including:
+            - past_length: Number of past timesteps
+            - future_length: Number of future timesteps
+            - hidden_dim: Hidden feature dimension
+            - zdim: Latent code dimension
+            - learn_prior: Whether to learn prior distribution
+            - ztype: Type of latent distribution ('gaussian')
+            - sample_k: Number of samples for inference
+        device: PyTorch device
+    """
     def __init__(self, args, device):
         super().__init__()
 
@@ -450,12 +518,26 @@ class GroupNet(nn.Module):
         return loss
 
     def forward(self, data):
+        """Forward pass during training
+        
+        Args:
+            data: Dictionary containing:
+                - past_traj: Past trajectories [batch, num_agents, past_len, NODE_DIM]
+                - future_traj: Future trajectories [batch, num_agents, future_len, NODE_DIM]
+
+        Returns:
+            total_loss: Combined training loss
+            loss_pred: Prediction loss
+            loss_recover: Recovery loss
+            loss_kl: KL divergence loss 
+            loss_diverse: Diversity loss
+        """
         device = self.device
         batch_size = data['past_traj'].shape[0]
         agent_num = data['past_traj'].shape[1]
         
-        past_traj = data['past_traj'].view(batch_size*agent_num, self.args.past_length, 2).to(device).contiguous()
-        future_traj = data['future_traj'].view(batch_size*agent_num, self.args.future_length, 2).to(device).contiguous()
+        past_traj = data['past_traj'].view(batch_size*agent_num, self.args.past_length, NODE_DIM).to(device).contiguous()
+        future_traj = data['future_traj'].view(batch_size*agent_num, self.args.future_length, NODE_DIM).to(device).contiguous()
 
         past_vel = past_traj[:, 1:] - past_traj[:, :-1, :]
         past_vel = torch.cat([past_vel[:, [0]], past_vel], dim=1)
@@ -530,11 +612,21 @@ class GroupNet(nn.Module):
             anl.step()
 
     def inference(self, data):
+        """Generate future predictions during inference
+        
+        Args:
+            data: Dictionary containing:
+                - past_traj: Past trajectories [batch, num_agents, past_len, NODE_DIM]
+                
+        Returns:
+            diverse_pred_traj: Multiple predicted trajectories 
+                Shape: [num_samples, batch*num_agents, future_len, NODE_DIM]
+        """
         device = self.device
         batch_size = data['past_traj'].shape[0]
         agent_num = data['past_traj'].shape[1]
         
-        past_traj = data['past_traj'].view(batch_size*agent_num, self.args.past_length, 2).to(device).contiguous()
+        past_traj = data['past_traj'].view(batch_size*agent_num, self.args.past_length, NODE_DIM).to(device).contiguous()
 
         past_vel = past_traj[:, 1:] - past_traj[:, :-1, :]
         past_vel = torch.cat([past_vel[:, [0]], past_vel], dim=1)
