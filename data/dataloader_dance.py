@@ -20,7 +20,7 @@ def seq_collate(data):
 class DanceDataset(Dataset):
     """Dataloader for the Trajectory datasets"""
     def __init__(
-        self, obs_len=5, pred_len=10, node_dim=3, training=True
+        self, obs_len=5, pred_len=10, node_dim=3, n_samples=None, training=True
     ):
         super(DanceDataset, self).__init__()
         self.obs_len = obs_len
@@ -32,7 +32,10 @@ class DanceDataset(Dataset):
         else:
             data_root = 'datasets/dance/test.npy'
 
-        self.trajs = np.load(data_root)[:,:,:,:node_dim]
+        if n_samples is None:
+            self.trajs = np.load(data_root)[:,:,:,:node_dim]
+        else:
+            self.trajs = np.load(data_root)[:,:,:,:node_dim][:n_samples]
         print(f"Loaded {'Train' if training else 'Test'} data with shape: {self.trajs.shape}")
         
         # if training:
