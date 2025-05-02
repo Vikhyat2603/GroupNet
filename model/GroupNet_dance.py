@@ -228,7 +228,8 @@ class PastEncoder(nn.Module):
             mlp_dim=64,
             bottleneck_dim=self.model_dim,
             batch_norm=0,
-            nmp_layers=1
+            nmp_layers=1,
+            edge_types=args.edge_types
         )
 
         if len(args.hyper_scales) > 0:
@@ -239,7 +240,8 @@ class PastEncoder(nn.Module):
                 bottleneck_dim=self.model_dim,
                 batch_norm=0,
                 nmp_layers=1,
-                scale=args.hyper_scales[0]
+                scale=args.hyper_scales[0],
+                edge_types=args.edge_types
             )
         if len(args.hyper_scales) > 1:
             self.interaction_hyper2 = MS_HGNN_hyper(
@@ -249,7 +251,8 @@ class PastEncoder(nn.Module):
                 bottleneck_dim=self.model_dim,
                 batch_norm=0,
                 nmp_layers=1,
-                scale=args.hyper_scales[1]
+                scale=args.hyper_scales[1],
+                edge_types=args.edge_types
             )
 
         if len(args.hyper_scales) > 2:
@@ -260,7 +263,8 @@ class PastEncoder(nn.Module):
                 bottleneck_dim=self.model_dim,
                 batch_norm=0,
                 nmp_layers=1,
-                scale=args.hyper_scales[2]
+                scale=args.hyper_scales[2],
+                edge_types=args.edge_types
             )
 
         self.pos_encoder = PositionalAgentEncoding(self.model_dim, 0.1, concat=True)
@@ -323,7 +327,8 @@ class FutureEncoder(nn.Module):
             bottleneck_dim=self.model_dim,
             batch_norm=0,
             nmp_layers=1,
-            vis=False
+            vis=False,
+            edge_types=args.edge_types
         )
 
         if len(args.hyper_scales) > 0:
@@ -335,7 +340,8 @@ class FutureEncoder(nn.Module):
                 batch_norm=0,
                 nmp_layers=1,
                 scale=args.hyper_scales[0],
-                vis=False
+                vis=False,
+                edge_types=args.edge_types
             )
         if len(args.hyper_scales) > 1:
             self.interaction_hyper2 = MS_HGNN_hyper(
@@ -346,7 +352,8 @@ class FutureEncoder(nn.Module):
                 batch_norm=0,
                 nmp_layers=1,
                 scale=args.hyper_scales[1],
-                vis=False
+                vis=False,
+                edge_types=args.edge_types
             )
         if len(args.hyper_scales) > 2:
             self.interaction_hyper3 = MS_HGNN_hyper(
@@ -357,7 +364,8 @@ class FutureEncoder(nn.Module):
                 batch_norm=0,
                 nmp_layers=1,
                 scale=args.hyper_scales[2],
-                vis=False
+                vis=False,
+                edge_types=args.edge_types
             )
 
         self.pos_encoder = PositionalAgentEncoding(self.model_dim, 0.1, concat=True)
