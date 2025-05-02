@@ -1,3 +1,11 @@
+# Vikhyat's section of README
+
+The most relevant file is **training_dance.ipynb**: it's where the GroupNet model is trained on Pettee's dance data, and where the hyperedges discovered by the model can be visualized.
+
+Do all your work in a Python virtual environment to help manage requirements.
+
+I used a Python 3.6.8 venv with torch==1.10.1, torch_geometric==2.0.3, and torch cuda version 10.2, but this will be different based on what machine you use.
+
 # GroupNet: Multiscale Hypergraph Neural Networks for Trajectory Prediction with Relational Reasoning
 
 **Official PyTorch code** for CVPR'22 paper "GroupNet: Multiscale Hypergraph Neural Networks for Trajectory Prediction with Relational Reasoning".

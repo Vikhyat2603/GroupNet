@@ -8,7 +8,7 @@ from mpl_toolkits.mplot3d.art3d import juggle_axes
 from IPython.display import HTML
 import matplotlib
 import matplotlib.pyplot as plt
-from load_data import * 
+from data.load_data_dance import * 
 
 ### Load ffmpeg for animations:
 # print(matplotlib.animation.writers.list()) # optional -- check that ffmpeg is loaded. if it's not there, use .to_jshtml() instead of .to_html5_video().
